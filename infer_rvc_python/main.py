@@ -3,7 +3,6 @@ import torch
 import gc
 import numpy as np
 import os
-import shutil
 import warnings
 import threading
 from tqdm import tqdm
@@ -21,6 +20,7 @@ import faiss
 from infer_rvc_python.root_pipe import VC, change_rms, bh, ah
 import librosa
 from urllib.parse import urlparse
+import copy
 
 warnings.filterwarnings("ignore")
 
@@ -256,6 +256,7 @@ class BaseLoader:
     def __init__(self, only_cpu=False, hubert_path=None, rmvpe_path=None):
         self.model_config = {}
         self.config = None
+        self.cache_model = {}
         self.only_cpu = only_cpu
         self.hubert_path = hubert_path
         self.rmvpe_path = rmvpe_path
@@ -324,6 +325,7 @@ class BaseLoader:
         # audio file
         input_audio_path,
         overwrite,
+        type_output,
     ):
 
         f0_method = params["pitch_algo"]
@@ -510,11 +512,29 @@ class BaseLoader:
             output_audio_path = new_path
 
         # Save file
-        sf.write(
-            file=output_audio_path,
-            samplerate=final_sr,
-            data=audio_opt
-        )
+        if type_output:
+            if type_output == "array":
+                return audio_opt, final_sr
+            else:
+                output_audio_path = os.path.splitext(
+                    output_audio_path
+                )[0]+f".{type_output}"
+
+        try:
+            sf.write(
+                file=output_audio_path,
+                samplerate=final_sr,
+                data=audio_opt
+            )
+        except Exception as e:
+            logger.error(e)
+            logger.error("Error saving file, trying with WAV format")
+            output_audio_path = os.path.splitext(output_audio_path)[0]+".wav"
+            sf.write(
+                file=output_audio_path,
+                samplerate=final_sr,
+                data=audio_opt
+            )
 
         self.model_config[task_id]["result"].append(output_audio_path)
         self.output_list.append(output_audio_path)
@@ -534,6 +554,7 @@ class BaseLoader:
     def unload_models(self):
         self.hu_bert_model = None
         self.model_pitch_estimator = None
+        self.model_vc = {}
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -543,6 +564,7 @@ class BaseLoader:
         tag_list=[],
         overwrite=False,
         parallel_workers=1,
+        type_output=None,  # ["mp3", "wav", "ogg", "flac"]
     ):
         logger.info(f"Parallel workers: {str(parallel_workers)}")
 
@@ -707,6 +729,7 @@ class BaseLoader:
             #     # output file
             #     input_audio_path,
             #     overwrite,
+            #     type_output,
             # )
 
             thread = threading.Thread(
@@ -731,6 +754,7 @@ class BaseLoader:
                     # audio file
                     input_audio_path,
                     overwrite,
+                    type_output,
                 )
             )
 
@@ -753,3 +777,131 @@ class BaseLoader:
                 final_result.extend(self.model_config[tag]["result"])
 
         return final_result
+
+    def generate_from_cache(
+        self,
+        audio_data=None,
+        tag=None,
+        reload=False,
+    ):
+
+        if not self.model_config:
+            raise ValueError("No model has been configured for inference")
+
+        if not audio_data:
+            raise ValueError(
+                "An audio file or tuple with "
+                "(<numpy data audio>,<sampling rate>) is needed"
+            )
+
+        # Base params
+        if not self.hu_bert_model:
+            self.hu_bert_model = load_hu_bert(self.config, self.hubert_path)
+
+        if tag not in self.model_config.keys():
+            raise ValueError(
+                f"No configured model for {tag}"
+            )
+
+        now_data = self.model_config[tag]
+        now_data["tag"] = tag
+
+        if self.cache_model != now_data and not reload:
+
+            # Unload previous
+            self.model_vc = {}
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            model_path = now_data["file_model"]
+            f0_method = now_data["pitch_algo"]
+            file_index = now_data["file_index"]
+            index_rate = now_data["index_influence"]
+            f0_file = now_data["file_pitch_algo"]
+
+            # Load model
+            (
+                self.model_vc["n_spk"],
+                self.model_vc["tgt_sr"],
+                self.model_vc["net_g"],
+                self.model_vc["pipe"],
+                self.model_vc["cpt"],
+                self.model_vc["version"]
+            ) = load_trained_model(model_path, self.config)
+            self.model_vc["if_f0"] = self.model_vc["cpt"].get("f0", 1)
+
+            # Load index
+            if os.path.exists(file_index) and index_rate != 0:
+                try:
+                    index = faiss.read_index(file_index)
+                    big_npy = index.reconstruct_n(0, index.ntotal)
+                except Exception as error:
+                    logger.error(f"Index: {str(error)}")
+                    index_rate = 0
+                    index = big_npy = None
+            else:
+                logger.warning("File index not found")
+                index_rate = 0
+                index = big_npy = None
+
+            self.model_vc["index_rate"] = index_rate
+            self.model_vc["index"] = index
+            self.model_vc["big_npy"] = big_npy
+
+            # Load f0 file
+            inp_f0 = None
+            if os.path.exists(f0_file):
+                try:
+                    with open(f0_file, "r") as f:
+                        lines = f.read().strip("\n").split("\n")
+                    inp_f0 = []
+                    for line in lines:
+                        inp_f0.append([float(i) for i in line.split(",")])
+                    inp_f0 = np.array(inp_f0, dtype="float32")
+                except Exception as error:
+                    logger.error(f"f0 file: {str(error)}")
+
+            self.model_vc["inp_f0"] = inp_f0
+
+            if "rmvpe" in f0_method:
+                if not self.model_pitch_estimator:
+                    from infer_rvc_python.lib.rmvpe import RMVPE
+
+                    logger.info("Loading vocal pitch estimator model")
+                    if self.rmvpe_path is None:
+                        self.rmvpe_path = ""
+                    rm_local_path = "rmvpe.pt"
+                    if os.path.exists(self.rmvpe_path):
+                        rm_local_path = self.rmvpe_path
+                    self.model_pitch_estimator = RMVPE(
+                        rm_local_path,
+                        is_half=self.config.is_half,
+                        device=self.config.device
+                    )
+
+                self.model_vc["pipe"].model_rmvpe = self.model_pitch_estimator
+
+            self.cache_model = copy.deepcopy(now_data)
+
+        return self.infer(
+            tag,
+            now_data,
+            # load model
+            self.model_vc["n_spk"],
+            self.model_vc["tgt_sr"],
+            self.model_vc["net_g"],
+            self.model_vc["pipe"],
+            self.model_vc["cpt"],
+            self.model_vc["version"],
+            self.model_vc["if_f0"],
+            # load index
+            self.model_vc["index_rate"],
+            self.model_vc["index"],
+            self.model_vc["big_npy"],
+            # load f0 file
+            self.model_vc["inp_f0"],
+            # output file
+            audio_data,
+            False,
+            "array",
+        )
