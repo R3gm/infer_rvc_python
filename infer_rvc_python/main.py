@@ -343,7 +343,7 @@ class BaseLoader:
             source_sr = input_audio_path[1]
             if source_sr != base_sr:
                 audio = librosa.resample(
-                    audio,
+                    audio.astype(np.float32),
                     orig_sr=source_sr,
                     target_sr=base_sr
                 )

@@ -67,6 +67,50 @@ The `result` is a list with the paths of the converted files.
 converter.unload_models()
 ```
 
+# Preloading model (Reduces inference time)
+
+The initial execution will preload the model for the tag. Subsequent calls to inference with the same tag will benefit from preloaded components, thereby reducing inference time.
+```
+result_array, sample_rate = converter.generate_from_cache(
+    audio_data="myaudiofile_path.wav",
+    tag="yoimiya",
+)
+```
+
+The param audio_data can be a path or a tuple with (array_data, sampling_rate)
+
+```
+# array_data = np.array([-22, -22, -15, ..., 0, 0, 0], dtype=np.int16)
+# source_sample_rate = 16000
+data = (array_data, source_sample_rate)
+result_array, sample_rate = converter.generate_from_cache(
+    audio_data=data,
+    tag="yoimiya",
+)
+```
+The result in both cases will be (array, sample_rate), which you can save or play in a notebook
+
+```
+# Save
+sf.write(
+    file="output_file.wav",
+    samplerate=sample_rate,
+    data=result_array
+)
+```
+
+```
+# Play; need to install ipython
+from IPython.display import Audio
+
+Audio(result_array, rate=sample_rate)
+```
+When settings or the tag are altered, the model requires reloading. To maintain multiple preloaded models, you can instantiate another BaseLoader object.
+```
+second_converter = BaseLoader()
+```
+
+
 # License
 This project is licensed under the MIT License.
 
