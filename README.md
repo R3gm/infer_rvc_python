@@ -92,6 +92,8 @@ The result in both cases will be (array, sample_rate), which you can save or pla
 
 ```
 # Save
+import soundfile as sf
+
 sf.write(
     file="output_file.wav",
     samplerate=sample_rate,
