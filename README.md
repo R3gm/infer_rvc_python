@@ -14,7 +14,18 @@ This streamlined wrapper offers an efficient solution for integrating RVC into y
 
 ## Getting Started
 
+### Prerequisites
+
+- You need to have ffmpeg and Python 3.10 installed.
+- In windows is needed to install Microsoft Visual C++ Build Tools, MSVC and Windows 10 SDK:
+
+    * Go to the [Visual Studio downloads page](https://visualstudio.microsoft.com/visual-cpp-build-tools/); Or maybe you already have **Visual Studio Installer**? Open it. If you have it already click modify.
+    * Download and install the "Build Tools for Visual Studio" if you don't have it.
+    * During installation, under "Workloads", select "C++ build tools" and ensure the latest versions of "MSVCv142 - VS 2019 C++ x64/x86 build tools" and "Windows 10 SDK"  are selected ("Windows 11 SDK" if you are using Windows 11); OR go to individual components and find those two listed.
+    * Complete the installation.
+
 ### Installation
+
 ```
 pip install infer_rvc_python
 ```
