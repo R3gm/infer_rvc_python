@@ -334,16 +334,29 @@ class BaseLoader:
         resample_sr = params["resample_sr"]
         rms_mix_rate = params["envelope_ratio"]
         protect = params["consonant_breath_protection"]
+        base_sr = 16000
 
-        if not os.path.exists(input_audio_path):
+        if isinstance(input_audio_path, tuple):
+            if f0_method == "harvest":
+                raise ValueError("Harvest not support from array")
+            audio = input_audio_path[0]
+            source_sr = input_audio_path[1]
+            if source_sr != base_sr:
+                audio = librosa.resample(
+                    audio,
+                    orig_sr=source_sr,
+                    target_sr=base_sr
+                )
+            audio = audio.astype(np.float32).flatten()
+        elif not os.path.exists(input_audio_path):
             raise ValueError(
                 "The audio file was not found or is not "
                 f"a valid file: {input_audio_path}"
             )
+        else:
+            audio = load_audio(input_audio_path, base_sr)
 
         f0_up_key = int(f0_up_key)
-
-        audio = load_audio(input_audio_path, 16000)
 
         # Normalize audio
         audio_max = np.abs(audio).max() / 0.95
@@ -498,6 +511,9 @@ class BaseLoader:
 
         """
 
+        if type_output == "array":
+            return audio_opt, final_sr
+
         if overwrite:
             output_audio_path = input_audio_path  # Overwrite
         else:
@@ -507,18 +523,14 @@ class BaseLoader:
             new_basename = basename.split(
                 '.')[0] + "_edited." + basename.split('.')[-1]
             new_path = os.path.join(dirname, new_basename)
-            logger.info(str(new_path))
 
             output_audio_path = new_path
 
         # Save file
         if type_output:
-            if type_output == "array":
-                return audio_opt, final_sr
-            else:
-                output_audio_path = os.path.splitext(
-                    output_audio_path
-                )[0]+f".{type_output}"
+            output_audio_path = os.path.splitext(
+                output_audio_path
+            )[0]+f".{type_output}"
 
         try:
             sf.write(
@@ -535,6 +547,8 @@ class BaseLoader:
                 samplerate=final_sr,
                 data=audio_opt
             )
+
+        logger.info(str(output_audio_path))
 
         self.model_config[task_id]["result"].append(output_audio_path)
         self.output_list.append(output_audio_path)
@@ -555,6 +569,7 @@ class BaseLoader:
         self.hu_bert_model = None
         self.model_pitch_estimator = None
         self.model_vc = {}
+        self.cache_model = {}
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -780,7 +795,7 @@ class BaseLoader:
 
     def generate_from_cache(
         self,
-        audio_data=None,
+        audio_data=None,  # str or tuple (<array data>,<int sampling rate>)
         tag=None,
         reload=False,
     ):
