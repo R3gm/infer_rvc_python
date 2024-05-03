@@ -1,11 +1,16 @@
-# GPT-SoVITS-FastInference
+# RVC-Python-FastInference
 
 A streamlined Python wrapper for fast inference with RVC.
-This is designed solely for inference purposes.
+Specifically designed for inference tasks.
 
 ## Introduction
 
-description
+This streamlined wrapper offers an efficient solution for integrating RVC into your Python projects, focusing primarily on rapid inference. Whether you're working on voice conversion applications or related projects, this tool simplifies the process while maintaining performance.
+
+## Key Features
+- Preloaded Models: Accelerate inference by loading models into memory beforehand, minimizing latency during runtime.
+- Batch Processing: Enhance efficiency by enabling batch processing, allowing for simultaneous conversion of multiple inputs, further optimizing throughput.
+- Support for Array Input and Output: Facilitate seamless integration with existing data pipelines by accepting and returning arrays, enhancing compatibility across various platforms and frameworks.
 
 ## Getting Started
 
@@ -111,7 +116,9 @@ When settings or the tag are altered, the model requires reloading. To maintain 
 ```
 second_converter = BaseLoader()
 ```
-
+# Credits
+- RVC-Project
+- FFMPEG
 
 # License
 This project is licensed under the MIT License.
