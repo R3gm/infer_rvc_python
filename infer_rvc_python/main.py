@@ -521,7 +521,7 @@ class BaseLoader:
             dirname = os.path.dirname(input_audio_path)
 
             new_basename = basename.split(
-                '.')[0] + "_edited." + basename.split('.')[-1]
+                '.')[0] + f" {tag} Ver." + basename.split('.')[-1]
             new_path = os.path.join(dirname, new_basename)
 
             output_audio_path = new_path
