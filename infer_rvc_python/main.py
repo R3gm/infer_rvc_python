@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import copy
 
 warnings.filterwarnings("ignore")
+SUPPORTED_SAMPLE_RATES = [8000, 12000, 16000, 22050, 24000, 32000, 44100, 48000]  # 96000
 
 
 class Config:
@@ -516,28 +517,33 @@ class BaseLoader:
 
         if overwrite:
             output_audio_path = input_audio_path  # Overwrite
+            type_output = os.path.splitext(output_audio_path)[1].lstrip(".")
         else:
             basename = os.path.basename(input_audio_path)
             dirname = os.path.dirname(input_audio_path)
 
-            new_basename = basename.split(
-                '.')[0] + "_edited." + basename.split('.')[-1]
+            name_, ext_ = os.path.splitext(basename)
+            new_basename = f"{name_}_edited{ext_}"
             new_path = os.path.join(dirname, new_basename)
 
             output_audio_path = new_path
 
         # Save file
-        if type_output:
-            output_audio_path = os.path.splitext(
-                output_audio_path
-            )[0]+f".{type_output}"
+        if not type_output:
+            type_output = "wav"
+        output_audio_path = os.path.splitext(
+            output_audio_path
+        )[0]+f".{type_output}"
 
         try:
-            sf.write(
-                file=output_audio_path,
-                samplerate=final_sr,
-                data=audio_opt
-            )
+            if type_output.lower() == "wav":
+                sf.write(file=output_audio_path, samplerate=final_sr, data=audio_opt)
+            else:
+                target_sr = min(SUPPORTED_SAMPLE_RATES, key=lambda altsr: abs(altsr - final_sr))
+                if target_sr != final_sr:
+                    logger.debug(f"Resampling from {final_sr} -> {target_sr} for {type_output}")
+                    audio_opt = signal.resample_poly(audio_opt, target_sr, final_sr, axis=0).astype(np.int16)
+                sf.write(file=output_audio_path, samplerate=target_sr, data=audio_opt, format=type_output)
         except Exception as e:
             logger.error(e)
             logger.error("Error saving file, trying with WAV format")
@@ -579,7 +585,7 @@ class BaseLoader:
         tag_list=[],
         overwrite=False,
         parallel_workers=1,
-        type_output=None,  # ["mp3", "wav", "ogg", "flac"]
+        type_output=None,  # ["mp3", "wav", "flac"]
     ):
         logger.info(f"Parallel workers: {str(parallel_workers)}")
 
